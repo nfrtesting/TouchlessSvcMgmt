@@ -1,0 +1,16 @@
+compareTo(OS): localhost
+#OS Values
+OS_Values:
+-  name: KubectlVersion
+   command: kubectl version
+   regex: (.*)Server Version(.*)GitVersion:\"v1.16.3
+-  name: PythonVersion
+   command: python --version
+   regex: Python 3.7.6
+-  name: py
+   command: python --version
+   regex: Python 3.7.6
+-  name: k8s
+   command: kubectl version
+   regex: (.*)Client Version(.*)GitVersion:\"v1.16.3
+
