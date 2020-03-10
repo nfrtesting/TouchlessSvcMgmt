@@ -1,0 +1,187 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsm-webhook-files
+data:
+    webhook.py: |
+        from flask import Flask, Response, request
+        from prometheus_client import generate_latest, Gauge, Histogram, Counter, Summary, CONTENT_TYPE_LATEST
+        from prometheus_flask_exporter import PrometheusMetrics
+
+        import os, time, sys, json, requests
+
+        VERSION="0.0.1a"
+        BOTID=os.environ['BOT_ID']
+        BOTPWD=os.environ['BOT_PWD']
+        BOTURL=os.environ['BOT_URL']
+
+        app = Flask(__name__)
+        m = PrometheusMetrics(app=app)
+
+        @app.route('/alert/<string:room>', methods=['POST'])
+        def alert(room):
+            alertinfo = request.json
+            app.logger.debug(alertinfo)
+            c = len(alertinfo['alerts'])
+            app.logger.debug('There are ' + str(c) + ' alerts.')
+            for alert in alertinfo['alerts']:
+                json_data = {}
+                json_data['to'] = room
+                json_data['displayfromname'] = 'AlertManager Bot'
+                json_data['from'] = BOTID
+                json_data['password'] = BOTPWD
+                json_data['type'] = 'meeting'
+                if alert['status'] == "firing":
+                    app.logger.info('Firing WARNING Alert to ' + room)
+                    app.logger.info('WARNING: ' + alert['annotations']['description'])
+                    json_data['html'] = str('<span style="color: #ff0000;">WARNING</span>: ' + alert['annotations']['description'])
+                else:
+                    app.logger.info('Firing RESOLVED Alert to ' + room)
+                    app.logger.info('RESOLVED: ' + alert['annotations']['description'])
+                    json_data['html'] = str('<span style="color: #008000;">RESOLVED:</span> ' + alert['annotations']['description'])
+                app.logger.info('JSON: ' + json.dumps(json_data))
+                response = requests.post(BOTURL, data=json.dumps(json_data))
+                app.logger.info('Posted to: ' + BOTURL)
+                app.logger.info('Response: ' + response.text)
+            return "Ok."
+
+        @app.route('/notify/<string:room>', methods=['POST'])
+        def notify(room):
+            alertinfo = request.json
+            app.logger.debug(alertinfo)
+            c = len(alertinfo['alerts'])
+            app.logger.debug('There are ' + str(c) + ' alerts.')
+            for alert in alertinfo['alerts']:
+                json_data = {}
+                json_data['to'] = room
+                json_data['displayfromname'] = 'AlertManager Bot'
+                json_data['from'] = BOTID
+                json_data['password'] = BOTPWD
+                json_data['type'] = 'meeting'
+                if alert['status'] == "firing":
+                    app.logger.info('Firing NOTIFICATION Alert to ' + room)
+                    app.logger.info('NOTIFICATION: ' + alert['annotations']['description'])
+                    json_data['html'] = str('<span style="color: #0000ff;">NOTIFICATION</span>: ' + alert['annotations']['description'])
+                    app.logger.info('JSON: ' + json.dumps(json_data))
+                    response = requests.post(BOTURL, data=json.dumps(json_data))
+                    app.logger.info('Posted to: ' + BOTURL)
+                    app.logger.info('Response: ' + response.text)
+            return "Ok."
+
+        @app.route('/metrics', methods=['GET'])
+        def metrics():
+            return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+
+        @app.route('/', methods=['GET'])
+        def index():
+            config = '<html><header><title>Webhook</title></header>'
+            config += '<body><h1 align="center">Webhook [' + VERSION + ']</h1><hr>'
+            config += '<h2 align="left">Engine Usage Config:</h2>'
+            config += '</body></html>'
+            return config
+
+        @app.before_first_request
+        def onStartup():
+            m.info('webhook_app_info', 'Application Info',
+                    version=VERSION,
+                    )
+            app.logger.debug('onStartup')
+
+        if __name__ == '__main__':
+            app.run(debug=True, host='0.0.0.0', port=5000)
+    run.sh: |
+      #!/bin/sh
+      pip install --upgrade pip
+      pip install flask prometheus_flask_exporter prometheus_client requests
+      python /tmp/webhook/webhook.py
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsm-webhook
+spec:
+  selector:
+    matchLabels:
+      app: tsm-webhook
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: tsm-webhook
+    spec:
+      containers:
+      - name: webhook
+        image: python:3.7.3-alpine3.9
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "500Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 5000
+        env:
+        - name: HTTP_PROXY
+          value: ""
+        - name: HTTPS_PROXY
+          value: ""
+        - name: NO_PROXY
+          value: ""
+        - name: BOT_URL
+          valueFrom:
+            secretKeyRef:
+              name: webhook-bot-config
+              key: url
+        - name: BOT_ID
+          valueFrom:
+            secretKeyRef:
+              name: webhook-bot-config
+              key: botid
+        - name: BOT_PWD
+          valueFrom:
+            secretKeyRef:
+              name: webhook-bot-config
+              key: password
+        command: ["/bin/sh"]
+        args: ["/tmp/webhook/run.sh"]
+        volumeMounts:
+        - name: webhook-files
+          mountPath: /tmp/webhook
+      volumes:
+        - name: webhook-files
+          configMap:
+            name: tsm-webhook-files
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-webhook-web
+spec:
+    type: NodePort
+    ports:
+    - port: 5000
+      protocol: TCP
+      targetPort: 5000
+    selector:
+      app: tsm-webhook
+    sessionAffinity: None
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tsm-webhook
+  annotations:
+      kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: webhook.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: tsm-webhook-web
+          servicePort: 5000
+
+   

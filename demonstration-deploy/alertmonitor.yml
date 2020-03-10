@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: alertmonitor-files
+data:
+    run.sh: |
+      #!/bin/sh
+      pip install --upgrade pip
+      pip install flask prometheus_flask_exporter prometheus_client requests
+      python /tmp/alertmon/monitor.py
+    monitor.py: |
+      # Chat Monitor
+      from flask import Flask, Response, request
+
+      import os, datetime, json
+
+      VERSION = "0.0.1a"
+
+      app = Flask(__name__)
+
+      alertmessages = []
+
+      @app.route('/alert', methods=['POST'])
+      def alert():
+          app.logger.debug('ALERT: ' + str(request.get_data()))
+          alertinfo = json.loads(request.get_data())
+          thisalert = {}
+          thisalert['timestamp'] = str(datetime.datetime.now())
+          thisalert['room'] = alertinfo['to']
+          thisalert['message'] = alertinfo['html']
+          alertmessages.append(thisalert)
+          return "Ok."
+
+      @app.route('/', methods=['GET'])
+      def index():
+          config = '<html><head><title>Alert Log</title><meta http-equiv="refresh" content="15"></head>'
+          config += '<body><h1 align="center">Alert Log [' + VERSION + ']</h1><hr>'
+          config += '<table><tr><th>Date/Time</th><th>Room</th><th>message</th></tr>'
+          for alertmessage in alertmessages[-20:]:
+              config += '<tr><td>' + alertmessage['timestamp'] + '</td><td>' + alertmessage['room'] + '</td><td>' + alertmessage['message'] + '</td></tr>'
+          config += '</table></body></html>'
+          return config
+
+
+      @app.before_first_request
+      def onStartup():
+          app.logger.debug('onStartup')
+
+
+      if __name__ == '__main__':
+          app.run(debug=True, host='0.0.0.0', port=5000)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmonitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmonitor
+  template:
+    metadata:
+      labels:
+        app: alertmonitor
+    spec:
+      containers:
+      - name: alertmonitor
+        image: python:3.7.3-alpine3.9
+        command: ["/bin/sh"]
+        args: ["/tmp/alertmon/run.sh"]
+        volumeMounts:
+        - name: alertmonitor-files
+          mountPath: /tmp/alertmon
+        ports:
+        - containerPort: 5000
+      volumes:
+        - name: alertmonitor-files
+          configMap:
+            name: alertmonitor-files
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: alertmonitor-web
+spec:
+    ports:
+    - port: 5000
+      targetPort: 5000
+    selector:
+      app: alertmonitor
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: alertmonitor
+  annotations:
+      kubernetes.io/ingress.class: traefik
+      traefik.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: alertmonitor.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: alertmonitor-web
+          servicePort: 5000

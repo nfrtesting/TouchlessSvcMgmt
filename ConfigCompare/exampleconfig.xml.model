@@ -1,0 +1,8 @@
+compareTo(XML): exampleconfig.xml
+<xml>
+	<tag />
+	<backends>
+        	<be>instance3</be>
+	</backends>
+    <pool name="db" target="db3">10</pool>
+</xml>

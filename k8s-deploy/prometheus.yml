@@ -1,0 +1,113 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsm-prometheus-sidecar
+data:
+  runapp.sh: |
+    #!/bin/sh
+    apk add git curl
+    mkdir /clones
+    cd /clones
+    git clone $SCRAPER_GIT_URL scrapers
+
+    while :
+    do
+      cd /clones/scrapers
+      git pull origin
+      cp * /scrapers
+      curl -X POST http://localhost:9090/-/reload
+      sleep 60
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsm-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: tsm-prometheus
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: tsm-prometheus
+    spec:
+      containers:
+      - name: sidecar
+        image: alpine:3.9
+        command: ["/bin/sh"]
+        args: ["/tmp/runapp.sh"]
+        env:
+        - name: http_proxy
+          value: ""
+        - name: no_proxy
+          value: "localhost"
+        - name: GIT_SSL_NO_VERIFY
+          value: "'true'"
+        - name: SCRAPER_GIT_URL
+          valueFrom:
+            secretKeyRef:
+              name: scraper-src
+              key: url
+        volumeMounts:
+        - name: prometheus-configs
+          mountPath: /scrapers
+        - name: tsm-sidecar
+          mountPath: /tmp
+      - name: prometheus
+        image: prom/prometheus:v2.15.2
+        command: ["/bin/prometheus"]
+        args: ["--web.enable-lifecycle", "--config.file=/scrapers/prometheus.yml", "--storage.tsdb.path=/prometheus", "--web.console.libraries=/usr/share/prometheus/console_libraries", "--web.console.templates=/usr/share/prometheus/consoles"]
+        resources:
+          requests:
+            memory: "500Mi"
+            cpu: "500m"
+          limits:
+            memory: "1000Mi"
+            cpu: "1000m"
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prometheus-configs
+          mountPath: /scrapers
+      volumes:
+        - name: prometheus-configs
+          emptyDir: {}
+        - name: tsm-sidecar
+          configMap:
+            name: tsm-prometheus-sidecar
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-prometheus-web
+spec:
+    type: NodePort
+    ports:
+    - port: 9090
+      protocol: TCP
+      targetPort: 9090
+    selector:
+      app: tsm-prometheus
+    sessionAffinity: None
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tsm-prometheus
+  annotations:
+      kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: prometheus.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: tsm-prometheus-web
+          servicePort: 9090
+
+   
