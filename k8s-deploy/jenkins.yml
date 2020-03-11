@@ -1,0 +1,367 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: tsm-jenkins-config
+data:
+    01kubectl.groovy: |
+        #!groovy
+
+        def procCurl = "curl -L -o /tmp/kubectl1.8.5 https://storage.googleapis.com/kubernetes-release/release/v1.8.5/bin/linux/amd64/kubectl".execute()
+        Thread.start {System.err << procCurl.err}
+        procCurl.waitFor()
+
+        def procChmod = "chmod +x /tmp/kubectl1.8.5 ".execute()
+        procChmod.waitForProcessOutput(System.out, System.err)
+
+        def procMv = "mv /tmp/kubectl1.8.5 /var/jenkins_home/kubectl".execute()
+        procMv.waitForProcessOutput(System.out, System.err)
+    02setProxy.groovy: |
+        #!groovy
+
+        import jenkins.*
+        import jenkins.model.*
+        import hudson.*
+        import hudson.model.*
+        instance = Jenkins.getInstance()
+        globalNodeProperties = instance.getGlobalNodeProperties()
+        envVarsNodePropertyList = globalNodeProperties.getAll(hudson.slaves.EnvironmentVariablesNodeProperty.class)
+        newEnvVarsNodeProperty = null
+        envVars = null
+        if ( envVarsNodePropertyList == null || envVarsNodePropertyList.size() == 0 ) {
+          newEnvVarsNodeProperty = new hudson.slaves.EnvironmentVariablesNodeProperty();
+          globalNodeProperties.add(newEnvVarsNodeProperty)
+          envVars = newEnvVarsNodeProperty.getEnvVars()
+        } else {
+          envVars = envVarsNodePropertyList.get(0).getEnvVars()
+        }
+        envVars.put("http_proxy", "\$HTTP_PROXY")
+        envVars.put("https_proxy", "\$HTTPS_PROXY")
+        envVars.put("no_proxy", "\$NO_PROXY")
+        instance.save()
+    03setExecutorCount.groovy: |
+      #!groovy
+
+      import groovy.xml.XmlUtil
+      import jenkins.model.*
+
+      configFilePath = '/var/jenkins_home/config.xml'
+      configFileContents = new File(configFilePath).text
+
+      def config = new XmlSlurper().parseText(configFileContents)
+
+      config.numExecutors = 6
+
+      def writer = new FileWriter(configFilePath)
+      XmlUtil.serialize(config, writer)
+      Jenkins.instance.reload()
+    04loadPlugins.groovy: |
+        #!groovy
+
+        import jenkins.model.*
+        import java.util.logging.Logger
+        def logger = Logger.getLogger("")
+        def installed = false
+        def initialized = false
+        def pluginParameter="prometheus"
+        def plugins = pluginParameter.split()
+        logger.info("" + plugins)
+        def instance = Jenkins.getInstance()
+        def pm = instance.getPluginManager()
+        def uc = instance.getUpdateCenter()
+        plugins.each {
+          logger.info("Checking " + it)
+          if (!pm.getPlugin(it)) {
+            logger.info("Looking UpdateCenter for " + it)
+            if (!initialized) {
+              uc.updateAllSites()
+              initialized = true
+            }
+            def plugin = uc.getPlugin(it)
+            if (plugin) {
+              logger.info("Installing " + it)
+                def installFuture = plugin.deploy()
+              while(!installFuture.isDone()) {
+                logger.info("Waiting for plugin install: " + it)
+                sleep(3000)
+              }
+              installed = true
+            }
+          }
+        }
+        if (installed) {
+          logger.info("Plugins installed, initializing a restart!")
+          instance.save()
+          instance.restart()
+        }
+    05approveScriptSecurity.groovy: |
+        #!groovy
+
+        import java.lang.reflect.*;
+        import jenkins.model.Jenkins;
+        import jenkins.model.*;
+        import org.jenkinsci.plugins.scriptsecurity.scripts.*;
+        import org.jenkinsci.plugins.scriptsecurity.sandbox.whitelists.*;
+
+        scriptApproval = ScriptApproval.get()
+        alreadyApproved = new HashSet<>(Arrays.asList(scriptApproval.getApprovedSignatures()))
+
+        approveSignature('method org.yaml.snakeyaml.Yaml load java.lang.String')
+        approveSignature('new org.yaml.snakeyaml.Yaml')
+        approveSignature('new org.apache.commons.httpclient.HttpClient')
+        approveSignature('new org.apache.commons.httpclient.methods.GetMethod java.lang.String')
+        approveSignature('new org.apache.commons.httpclient.methods.PostMethod java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod getParams')
+        approveSignature('staticField org.apache.commons.httpclient.cookie.CookiePolicy DEFAULT')
+        approveSignature('method org.apache.commons.httpclient.HttpClient executeMethod org.apache.commons.httpclient.HttpMethod')
+        approveSignature('method org.apache.commons.httpclient.params.HttpMethodParams setCookiePolicy java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.HttpClient executeMethod')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod getResponseBodyAsString')
+        approveSignature('method groovy.lang.GString getBytes')
+        approveSignature('staticMethod org.codehaus.groovy.runtime.EncodingGroovyMethods encodeBase64 byte[]')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod addRequestHeader java.lang.String java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod getStatusCode')
+        approveSignature('new org.apache.commons.httpclient.methods.GetMethod')
+        approveSignature('new groovy.util.XmlSlurper')
+        approveSignature('new groovy.xml.MarkupBuilder java.io.Writer')
+        approveSignature('method groovy.util.XmlSlurper parseText java.lang.String')
+        approveSignature('method groovy.lang.GroovyObject getProperty java.lang.String')
+        approveSignature('method groovy.util.slurpersupport.GPathResult text')
+        approveSignature('method groovy.util.slurpersupport.GPathResult find groovy.lang.Closure')
+        approveSignature('method groovy.util.slurpersupport.GPathResult getAt int')
+        approveSignature('staticMethod org.codehaus.groovy.runtime.DefaultGroovyMethods find java.lang.Object groovy.lang.Closure')
+        approveSignature('method groovy.util.slurpersupport.GPathResult toInteger')
+        approveSignature('method groovy.lang.GroovyObject invokeMethod java.lang.String java.lang.Object')
+        approveSignature('new org.apache.commons.httpclient.methods.StringRequestEntity java.lang.String java.lang.String java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.methods.EntityEnclosingMethod setRequestEntity org.apache.commons.httpclient.methods.RequestEntity')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod setRequestHeader java.lang.String java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod getResponseHeader java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.Header getElements')
+        approveSignature('method org.apache.commons.httpclient.NameValuePair getName')
+        approveSignature('method org.apache.commons.httpclient.NameValuePair getValue')
+        approveSignature('staticField org.apache.commons.httpclient.cookie.CookiePolicy IGNORE_COOKIES')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod getRequestHeader java.lang.String')
+        approveSignature('new java.lang.String java.lang.String')
+        approveSignature('staticMethod org.codehaus.groovy.runtime.DefaultGroovyMethods execute java.lang.String')
+        approveSignature('staticMethod org.codehaus.groovy.runtime.ProcessGroovyMethods getText java.lang.Process')
+        approveSignature('new java.io.FileOutputStream java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod getResponseBodyAsStream')
+        approveSignature('staticMethod org.codehaus.groovy.runtime.DefaultGroovyMethods leftShift java.io.OutputStream java.io.InputStream')
+        approveSignature('new java.io.File java.lang.String')
+        approveSignature('new java.util.zip.ZipFile java.io.File')
+        approveSignature('new java.util.zip.ZipFile entries')
+        approveSignature('method java.util.Enumeration hasMoreElements')
+        approveSignature('method java.util.Enumeration nextElement')
+        approveSignature('method java.util.zip.ZipEntry getName')
+        approveSignature('method java.util.zip.ZipFile getInputStream java.util.zip.ZipEntry')
+        approveSignature('new org.apache.commons.httpclient.methods.PutMethod java.lang.String')
+        approveSignature('method java.util.zip.ZipFile entries')
+        approveSignature('method java.lang.String getBytes')
+        approveSignature('staticMethod org.codehaus.groovy.runtime.DefaultGroovyMethods leftShift java.io.OutputStream java.lang.Object')
+        approveSignature('new org.apache.commons.httpclient.methods.FileRequestEntity java.io.File java.lang.String')
+        approveSignature('new org.apache.commons.codec.binary.Base64OutputStream java.io.OutputStream')
+        approveSignature('new java.io.FileInputStream java.lang.String')
+        approveSignature('method java.io.Flushable flush')
+        approveSignature('method java.io.InputStream read byte[] int int')
+        approveSignature('method java.io.OutputStream write byte[] int int')
+        approveSignature('staticMethod org.codehaus.groovy.runtime.DefaultGroovyMethods getText java.io.File')
+        approveSignature('new org.apache.commons.codec.binary.Base64OutputStream java.io.OutputStream boolean int byte[]')
+        approveSignature('method java.util.regex.Matcher find')
+        approveSignature('new org.apache.commons.httpclient.NameValuePair java.lang.String java.lang.String')
+        approveSignature('method org.apache.commons.httpclient.HttpMethod setQueryString org.apache.commons.httpclient.NameValuePair[]')
+
+        scriptApproval.save()
+
+        void approveSignature(String signature) {
+            if (!alreadyApproved.contains(signature)) {
+               scriptApproval.approveSignature(signature)
+            }
+        }
+
+        // Utility methods
+        String printArgumentTypes(Object[] args) {
+            StringBuilder b = new StringBuilder();
+            for (Object arg : args) {
+                b.append(' ');
+                b.append(EnumeratingWhitelist.getName(arg));
+            }
+            return b.toString();
+        }
+    98disableScriptSecurity.groovy: |
+        #!groovy
+
+        //import javaposse.jobdsl.plugin.GlobalJobDslSecurityConfiguration
+        //import jenkins.model.GlobalConfiguration
+
+        // disable Job DSL script approval
+        //GlobalConfiguration.all().get(GlobalJobDslSecurityConfiguration.class).useScriptSecurity=false
+        //GlobalConfiguration.all().get(GlobalJobDslSecurityConfiguration.class).save()
+    99security.groovy: |
+        #!groovy
+
+        import jenkins.model.*
+        import hudson.security.*
+        import jenkins.security.s2m.AdminWhitelistRule
+        import com.cloudbees.plugins.credentials.Credentials
+        import com.cloudbees.plugins.credentials.CredentialsScope
+        import com.cloudbees.plugins.credentials.common.IdCredentials
+        import com.cloudbees.plugins.credentials.domains.Domain
+        import com.cloudbees.plugins.credentials.SystemCredentialsProvider
+        import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
+        import com.microsoft.jenkins.kubernetes.credentials.*
+        import java.util.logging.Logger
+        def logger = Logger.getLogger("")
+
+        def instance = Jenkins.getInstance()
+        String uid = new File('/var/run/secrets/jenkinsadmin/username').text
+        logger.info("Jenkins Admin User: [" + uid + "]")
+        String pwd = new File('/var/run/secrets/jenkinsadmin/password').text
+        logger.info("Jenkins Admin Password: [" + pwd + "]")
+
+
+        def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+        hudsonRealm.createAccount(uid,pwd)
+        Jenkins.instance.setSecurityRealm(hudsonRealm)
+
+        def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+        Jenkins.instance.setAuthorizationStrategy(strategy)
+        Jenkins.instance.save()
+
+        Jenkins.instance.getInjector().getInstance(AdminWhitelistRule.class).setMasterKillSwitch(false)
+
+        //provider = SystemCredentialsProvider.getInstance()
+        //nexusCred = new UsernamePasswordCredentialsImpl(CredentialsScope.valueOf("GLOBAL"), "nexus-admin", "nexus-admin", "admin", "admin123")
+        //provider.getCredentials().add(nexusCred)
+        //provider.save()
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tsm-engine
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: tsm-engine
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["create","delete","get","list","patch","update","watch"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create","delete","get","list","patch","update","watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get","list","watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: tsm-engine
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tsm-engine
+subjects:
+- kind: ServiceAccount
+  name: tsm-engine
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsm-jenkins
+spec:
+  selector:
+    matchLabels:
+      app: tsm-jenkins
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: tsm-jenkins
+    spec:
+      serviceAccount: tsm-engine
+      containers:
+      - name: jenkins
+        image: jenkinsci/blueocean:1.14.0
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1024Mi"
+            cpu: "1000m"        
+        ports:
+        - containerPort: 8080
+        - containerPort: 50000
+        env:
+        - name: HTTP_PROXY
+          value: ""
+        - name: HTTPS_PROXY
+          value: ""
+        - name: NO_PROXY
+          value: ""
+        - name: JAVA_OPTS
+          value: "-Xmx512m -Djenkins.install.runSetupWizard=false -Dorg.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL=300"
+        volumeMounts:
+        - name: jenkins-files
+          mountPath: /var/jenkins_home/init.groovy.d
+        - name: jenkinsadmin
+          readOnly: true
+          mountPath: "/var/run/secrets/jenkinsadmin"
+      volumes:
+        - name: jenkins-files
+          configMap:
+            name: tsm-jenkins-config
+        - name: jenkinsadmin
+          secret:
+            secretName: jenkins-admin
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-jenkins-web
+spec:
+    type: NodePort
+    ports:
+    - port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      app: tsm-jenkins
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-jenkins-slaveport
+spec:
+    type: ClusterIP
+    ports:
+    - port: 50000
+      protocol: TCP
+      targetPort: 50000
+    selector:
+      app: tsm-jenkins
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tsm-jenkins
+  annotations:
+      kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: jenkins.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: tsm-jenkins-web
+          servicePort: 8080

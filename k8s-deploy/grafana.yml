@@ -15,7 +15,7 @@ data:
     do
       cd /clones/dashboards
       git pull origin
-      cp * /dashboards
+      cp -R * /dashboards
       sleep 60
     done
 ---

@@ -1,0 +1,139 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsm-robotics-sidecar
+data:
+  runapp.sh: |
+    #!/bin/sh
+    apk add git
+    mkdir /clones
+    cd /clones
+    git clone $ROBOTICS_GIT_URL robotics
+
+    while :
+    do
+      cd /clones/robotics
+      git pull origin
+      cp -R * /robotics
+      sleep 60
+    done
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsm-robotics-files
+data:
+     run.sh: |
+      #!/bin/sh
+      pip install --upgrade pip
+      pip install flask prometheus_flask_exporter prometheus_client requests
+      python /robotics/robotics.py
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsm-robotics
+spec:
+  selector:
+    matchLabels:
+      app: tsm-robotics
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: tsm-robotics
+    spec:
+      containers:
+      - name: sidecar
+        image: alpine:3.9
+        command: ["/bin/sh"]
+        args: ["/tmp/runapp.sh"]
+        env:
+        - name: http_proxy
+          value: ""
+        - name: no_proxy
+          value: "localhost"
+        - name: GIT_SSL_NO_VERIFY
+          value: "'true'"
+        - name: ROBOTICS_GIT_URL
+          valueFrom:
+            secretKeyRef:
+              name: robotics-config
+              key: url
+        volumeMounts:
+        - name: robotics-runtime
+          mountPath: /robotics
+        - name: tsm-sidecar
+          mountPath: /tmp
+      - name: webhook
+        image: python:3.7.3-alpine3.9
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "500Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 5000
+        env:
+        - name: HTTP_PROXY
+          value: ""
+        - name: HTTPS_PROXY
+          value: ""
+        - name: NO_PROXY
+          value: ""
+        - name: REPORT_URL
+          valueFrom:
+            secretKeyRef:
+              name: robotics-config
+              key: report-url
+        command: ["/bin/sh"]
+        args: ["/tmp/robotics/run.sh"]
+        volumeMounts:
+        - name: robotics-runtime
+          mountPath: /robotics
+        - name: robotics-files
+          mountPath: /tmp/robotics
+      volumes:
+        - name: robotics-files
+          configMap:
+            name: tsm-robotics-files
+        - name: robotics-runtime
+          emptyDir: {}
+        - name: tsm-sidecar
+          configMap:
+            name: tsm-robotics-sidecar
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-robotics-web
+spec:
+    type: NodePort
+    ports:
+    - port: 5000
+      protocol: TCP
+      targetPort: 5000
+    selector:
+      app: tsm-robotics
+    sessionAffinity: None
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tsm-robotics
+  annotations:
+      kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: robotics.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: tsm-robotics-web
+          servicePort: 5000
+
+   

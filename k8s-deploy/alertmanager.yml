@@ -15,7 +15,7 @@ data:
     do
       cd /clones/scrapers
       git pull origin
-      cp * /scrapers
+      cp -R * /scrapers
       sleep 60
     done
 ---

@@ -1,0 +1,199 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsm-jupyter-sidecar
+data:
+  runapp.sh: |
+    #!/bin/sh
+    apk add git curl
+    mkdir /clones
+    cd /clones
+    git clone $JUPYTER_GIT_URL packages
+
+    while :
+    do
+      cd /clones/packages
+      git pull origin
+      cp -R * /packages
+      sleep 60
+    done
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tsm-jupyter-config
+data:
+
+  runapp.sh: |
+    #!/bin/sh
+
+    python --version
+    conda install --yes flask
+
+    echo "Starting helper"
+    python /tmp/app.py &
+
+    echo "Starting Jupyter"
+    start-notebook.sh --NotebookApp.token='' --NotebookApp.disable_check_xsrf=True
+
+  app.py: |
+    from flask import Flask, request, redirect, Response
+    import nbformat, os
+    from nbconvert.preprocessors import ExecutePreprocessor
+    from nbconvert.exporters.html import HTMLExporter
+
+    VERSION="0.0.1a"
+
+    app = Flask(__name__)
+
+    @app.route('/', methods=['GET'])
+    def identity():
+        return "Stub Flask App"
+
+    @app.route('/doWork', methods=['GET'])
+    def doWork():
+        rptFolder = request.args.get("path")
+        ipynbName = request.args.get("ipynb")
+
+        config = '<html><header><title>Jupyter Helper</title></header>'
+        config += '<body><h1 align="center">Jupyter Helper [' + VERSION + ']</h1><hr>'
+        config += '<p>JUPYTER_HOME: ' + os.environ['HOME']
+        config += '<p>Report Folder: ' + rptFolder
+        config += '<p>ipynbName: ' + ipynbName
+        config += '</body></html>'
+
+        path = os.environ['HOME'] + '/' + rptFolder
+
+        with open (path + '/' + ipynbName) as inFile:
+            nb = nbformat.read(inFile, as_version=4)
+            ep = ExecutePreprocessor(timeout=600, kernel_name='python3')
+            ep.preprocess(nb, {'metadata':{'path': path + '/'}})
+            with open (path + '/executed_' + ipynbName, 'w', encoding='utf-8') as outFile:
+                nbformat.write(nb, outFile)
+                outFile.close()
+            he = HTMLExporter()
+            htmldata, resources = he.from_notebook_node(nb)
+            with open (path + '/executed_' + ipynbName + '.html', 'w', encoding='utf-8') as outFile:
+                outFile.write(htmldata)
+                outFile.close()
+            inFile.close()
+
+        return config
+
+    if __name__ == '__main__':
+        app.run(debug=True, host='0.0.0.0', port=9999)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tsm-jupyter
+spec:
+  selector:
+    matchLabels:
+      app: tsm-jupyter
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: tsm-jupyter
+    spec:
+      containers:
+      - name: sidecar
+        image: alpine:3.9
+        command: ["/bin/sh"]
+        args: ["/tmp/runapp.sh"]
+        env:
+        - name: http_proxy
+          value: ""
+        - name: no_proxy
+          value: "localhost"
+        - name: GIT_SSL_NO_VERIFY
+          value: "'true'"
+        - name: JUPYTER_GIT_URL
+          valueFrom:
+            secretKeyRef:
+              name: jupyter-src
+              key: url
+        volumeMounts:
+        - name: jupyter-pkgs
+          mountPath: /packages
+        - name: tsm-sidecar
+          mountPath: /tmp
+      - name: jupyter
+        image: jupyter/scipy-notebook
+        resources:
+          requests:
+            memory: "500Mi"
+            cpu: "500m"
+          limits:
+            memory: "1000Mi"
+            cpu: "1000m"   
+        ports:
+        - containerPort: 8888
+        - containerPort: 9999
+        command: ["sh"]
+        args: ["/tmp/runapp.sh"]
+        env:
+        - name: HTTP_PROXY
+          value: ""
+        - name: HTTPS_PROXY
+          value: ""
+        - name: NO_PROXY
+          value: ""
+        volumeMounts:
+        - name: jupyter-files
+          mountPath: /tmp
+        - name: jupyter-pkgs
+          mountPath: /home/jovyan/Packages
+      volumes:
+        - name: jupyter-files
+          configMap:
+            name: tsm-jupyter-config
+        - name: jupyter-pkgs
+          emptyDir: {}
+        - name: tsm-sidecar
+          configMap:
+            name: tsm-jupyter-sidecar
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-jupyter-web
+spec:
+    type: NodePort
+    ports:
+    - port: 8888
+      protocol: TCP
+      targetPort: 8888
+    selector:
+      app: tsm-jupyter
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-jupyter-helper
+spec:
+    type: NodePort
+    ports:
+    - port: 9999
+      protocol: TCP
+      targetPort: 9999
+    selector:
+      app: tsm-jupyter
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tsm-jupyter
+  annotations:
+      kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: jupyter.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: tsm-jupyter-web
+          servicePort: 8888
