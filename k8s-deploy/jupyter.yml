@@ -197,3 +197,19 @@ spec:
         backend:
           serviceName: tsm-jupyter-web
           servicePort: 8888
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tsm-jupyter-helper
+  annotations:
+      kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: jupyter-helper.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: tsm-jupyter-helper
+          servicePort: 9999

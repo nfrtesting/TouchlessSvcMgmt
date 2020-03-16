@@ -27,7 +27,7 @@ data:
      run.sh: |
       #!/bin/sh
       pip install --upgrade pip
-      pip install flask prometheus_flask_exporter prometheus_client requests
+      pip install flask prometheus_flask_exporter prometheus_client requests python-jenkins
       python /robotics/robotics.py
 ---
 apiVersion: apps/v1

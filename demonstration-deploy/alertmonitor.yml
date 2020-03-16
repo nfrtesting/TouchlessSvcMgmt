@@ -97,7 +97,6 @@ metadata:
   name: alertmonitor
   annotations:
       kubernetes.io/ingress.class: traefik
-      traefik.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
   - host: alertmonitor.tsm

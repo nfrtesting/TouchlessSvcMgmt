@@ -169,6 +169,13 @@ data:
         approveSignature('method java.util.regex.Matcher find')
         approveSignature('new org.apache.commons.httpclient.NameValuePair java.lang.String java.lang.String')
         approveSignature('method org.apache.commons.httpclient.HttpMethod setQueryString org.apache.commons.httpclient.NameValuePair[]')
+        approveSignature('method java.net.URL openConnection')
+        approveSignature('method java.net.HttpURLConnection setRequestMethod java.lang.String')
+        approveSignature('method java.net.URLConnection setDoOutput boolean')
+        approveSignature('method java.net.URLConnection getOutputStream')
+        approveSignature('method groovy.lang.GString getBytes java.lang.String')
+        approveSignature('method java.io.OutputStream write byte[]')
+        approveSignature('method java.net.HttpURLConnection getResponseCode')
 
         scriptApproval.save()
 

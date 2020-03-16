@@ -18,7 +18,7 @@ def readModel(modelFile):
     target = re.match("compareTo\((XML|OS)\):\W*(.*)", targetline)
     if target is not None:
         if target.groups()[0] == 'XML': spec = etree.XML(fd.read())
-        if target.groups()[0] == 'OS': spec = yaml.load(fd.read(), Loader=yaml.FullLoader)
+        elif target.groups()[0] == 'OS': spec = yaml.load(fd.read(), Loader=yaml.FullLoader)
         else: spec = None
         return target.groups()[0], target.groups()[1], spec
     else:
@@ -111,7 +111,6 @@ osMetrics = {}
 
 def compareOS(configName, spec):
     for checkItem in spec['OS_Values']:
-        print('\tChecking: {0}'.format(checkItem))
         actualValue = re.search(str(checkItem['regex']), subprocess.run(checkItem['command'], stdout=subprocess.PIPE).stdout.decode('utf-8'))
         if actualValue is None:
             configCheck.labels(configName, '{0}'.format(checkItem['name'])).set(0)
@@ -123,9 +122,10 @@ def updateConfigReport():
     for model in [file for file in glob.glob('./*.model')]:
         print('\tChecking [{0}]'.format(model))
         type, target, spec = readModel(model)
+        print('\t\tType: {0}, Target: {1}'.format(type, target))
         if type == 'XML': compareXML(target, spec, etree.XML(open(target, "r").read()))
-        if type == 'OS': compareOS(target, spec)
-        else: print('{0} is invalid.'.format(model))
+        elif type == 'OS': compareOS(target, spec)
+        else: print('\t{0} is invalid.'.format(model))
 
 @app.route('/metrics', methods=['GET'])
 def metrics():

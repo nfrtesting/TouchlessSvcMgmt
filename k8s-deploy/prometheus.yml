@@ -72,6 +72,10 @@ spec:
         volumeMounts:
         - name: prometheus-configs
           mountPath: /scrapers
+      - name: pushgateway
+        image: prom/pushgateway:v1.2.0
+        ports:
+        - containerPort: 9091
       volumes:
         - name: prometheus-configs
           emptyDir: {}
@@ -94,6 +98,20 @@ spec:
       app: tsm-prometheus
     sessionAffinity: None
 ---
+apiVersion: v1
+kind: Service
+metadata:
+    name: tsm-prometheus-push
+spec:
+    type: NodePort
+    ports:
+    - port: 9091
+      protocol: TCP
+      targetPort: 9091
+    selector:
+      app: tsm-prometheus
+    sessionAffinity: None
+---
 apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
@@ -109,5 +127,21 @@ spec:
         backend:
           serviceName: tsm-prometheus-web
           servicePort: 9090
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tsm-prometheus-push
+  annotations:
+      kubernetes.io/ingress.class: traefik
+spec:
+  rules:
+  - host: prometheus-push.tsm
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: tsm-prometheus-push
+          servicePort: 9091
 
    

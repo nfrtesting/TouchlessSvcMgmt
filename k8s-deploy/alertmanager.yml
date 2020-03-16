@@ -16,6 +16,7 @@ data:
       cd /clones/scrapers
       git pull origin
       cp -R * /scrapers
+      curl -X POST http://localhost:9093/-/reload
       sleep 60
     done
 ---

@@ -1,4 +1,5 @@
 <xml>
+    <pool name="db" target="db3">10</pool>
 	<tag />
 	<backends>
         	<be>instance3</be>
