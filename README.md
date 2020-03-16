@@ -25,7 +25,7 @@ kubectl -n tsm create secret generic dashboard-src --from-literal=url=https://gi
 kubectl -n tsm create secret generic jupyter-src --from-literal=url=https://github.com/wroney688/jupyter-packages
 kubectl -n tsm create secret generic grafana-admin --from-literal=username=admin --from-literal=password=admin
 kubectl -n tsm create secret generic jenkins-admin --from-literal=username=admin --from-literal=password=admin
-kubectl -n tsm create secret generic robotics-config --from-literal=report-url=http://alertmonitor-web:5000/alert --from-literal=url=https://github.com/wroney688/poc
+kubectl -n tsm create secret generic robotics-config --from-literal=report-url=http://alertmonitor-web:5000/alert --from-literal=url=https://github.com/nfrtesting/touchlesssvcmgmt
 kubectl -n tsm apply -f k8s-deploy
 kubectl -n tsm apply -f demonstration-deploy
 ```

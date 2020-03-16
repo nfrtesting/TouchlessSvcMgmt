@@ -370,12 +370,10 @@ def onStartup():
             version=VERSION,
             )
     app.config.update(
-#        JENKINS_URL='http://jenkins.tsm',
         JENKINS_URL='http://tsm-jenkins-web:8080',
-#        JUPYTER_URL='http://jupyter.tsm',
-#        JUPYTER_HELPER_URL='http://jupyter-helper.tsm',
-#        PROMETHEUS_URL='http://prometheus.tsm',
-#        PROMETHEUS_PUSH_URL='http://prometheus-push.tsm',
+        JUPYTER_URL='http://tsm-jupyter-web:8888',
+        JUPYTER_HELPER_URL='http://tsm-jupyter-helper:9999',
+        PROMETHEUS_URL='http://tsm-prometheus-web:9090',
         PROMETHEUS_PUSH_URL='http://tsm-prometheus-push:9091',
         UID='admin',
         PWD='admin',
