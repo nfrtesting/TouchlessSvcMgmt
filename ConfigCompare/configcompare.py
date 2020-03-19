@@ -3,6 +3,7 @@ from prometheus_client import generate_latest, Info, Gauge, Histogram, Counter, 
 from prometheus_flask_exporter import PrometheusMetrics
 import re, glob, getopt, sys, yaml, subprocess
 import xml.etree.ElementTree as etree
+from pyjavaproperties import Properties
 
 METRIC_PREFIX = 'configcheck'
 PORT=9270
@@ -15,10 +16,14 @@ configCheck = Gauge('{0}'.format(METRIC_PREFIX), 'Config Match==1, Mismatch==0',
 def readModel(modelFile):
     fd = open(modelFile, "r")
     targetline = fd.readline()
-    target = re.match("compareTo\((XML|OS)\):\W*(.*)", targetline)
+    target = re.match("compareTo\((XML|OS|properties)\):\s*(.*)", targetline)
     if target is not None:
         if target.groups()[0] == 'XML': spec = etree.XML(fd.read())
         elif target.groups()[0] == 'OS': spec = yaml.load(fd.read(), Loader=yaml.FullLoader)
+        elif target.groups()[0] == 'properties':
+            p = Properties()
+            p.load(fd)
+            spec = p
         else: spec = None
         return target.groups()[0], target.groups()[1], spec
     else:
@@ -118,6 +123,17 @@ def compareOS(configName, spec):
             configCheck.labels(configName, '{0}'.format(checkItem['name'])).set(1)
     return
 
+def compareProperties(filename, model, actual):
+    for prop in model.keys():
+        if prop in actual.keys():
+            if model[prop] == actual[prop]:
+                configCheck.labels(filename, prop).set(1)
+            else:
+                configCheck.labels(filename, prop).set(0)
+        else:
+            configCheck.labels(filename, prop).set(0)
+    return
+
 def updateConfigReport():
     for model in [file for file in glob.glob('./*.model')]:
         print('\tChecking [{0}]'.format(model))
@@ -125,6 +141,10 @@ def updateConfigReport():
         print('\t\tType: {0}, Target: {1}'.format(type, target))
         if type == 'XML': compareXML(target, spec, etree.XML(open(target, "r").read()))
         elif type == 'OS': compareOS(target, spec)
+        elif type == 'properties':
+            p = Properties()
+            p.load(open(target, "r"))
+            compareProperties(target, spec, p)
         else: print('\t{0} is invalid.'.format(model))
 
 @app.route('/metrics', methods=['GET'])
